@@ -1,0 +1,71 @@
+
+
+node ('nodejs-build-slave'){
+    container('nodejs-build-slave') {
+        properties([
+            parameters([
+                [$class: 'CredentialsParameterDefinition', credentialType: 'com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl', defaultValue: '325a3f63-f660-4c5e-9f4e-baafb797f06a', description: '', name: 'Git', required: true]
+            ]),
+            disableConcurrentBuilds()
+        ])
+    	stage('Clone') {
+            try {
+                dir('test') {
+                    checkout scm
+                }
+                dir('build')  {
+                    git branch: 'jenkins', credentialsId: params.Git, url: 'https://github.com/satishsudini/Testproject/'
+                }
+                dir('test') {
+                    sh 'npm install && npm run install-common'
+                }
+            } catch (exc) {
+                currentBuild.result = "FAILURE"
+                throw exc
+            } finally {
+
+            }
+        }
+        stage('JS Lint') {
+            dir('test') {
+                try {
+                    sh 'npm run jslint'
+                } catch (exc) {
+                    currentBuild.result = "FAILURE"
+                    throw exc
+                } finally {
+                    checkstyle canComputeNew: false, defaultEncoding: '', healthy: '', pattern: 'reports/*.xml', unHealthy: ''
+                }
+            }
+        }
+        stage('Unit Test') {
+            dir('test') {
+                try {
+                    sh 'npm run unit-test'
+                } catch (exc) {
+                    // currentBuild.result = "FAILURE"
+                    // throw exc
+                } finally {
+                    publishHTML([allowMissing: true, alwaysLinkToLastBuild: true, keepAll: true, reportDir: 'test/unit/reports/coverage', reportFiles: 'index.html', reportName: 'Unit Test Coverage', reportTitles: 'Coverage'])
+                }
+            }
+        }
+        stage ('Build') {
+            try {
+                dir('test') {
+                    sh 'npm run build-prod ; npm run pack'
+                    sh 'docker build --no-cache -t test .'
+                    sh "docker tag test nonprodregistry.satish/testproject:${env.BUILD_NUMBER}"
+                    sh 'docker login --username=satishsudini --password="Satish74*" https://hub.docker.com'
+                    sh "docker push nonprodregistry.azurecr.io/wag-vpd-ui:${env.BUILD_NUMBER}"
+                }
+            } catch (exc) {
+                currentBuild.result = "FAILURE"
+                throw exc
+            } finally {
+
+            }
+        }
+        
+    }
+}
